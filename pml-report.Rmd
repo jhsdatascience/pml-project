@@ -1,0 +1,159 @@
+---
+title: "Predicting Quality of Exercise"
+author: "jhsdatascience"
+date: "06/18/2014"
+output: html_document
+---
+
+```{r, include = F}
+library(lattice); library(caret); library(doParallel); library(xtable);
+library(randomForest);
+trellis.par.set(caretTheme())
+```
+
+
+## Question
+
+How well can we predict the quality of performance of an exercise given data on body motion collected by wearable devices? Using the [Weight Lifting Exercise dataset][WLEdata], I train four models and estimate their out of sample error using 10-fold cross validation. The model with the lowest estimated out of sample error is a random forest. I use this model to predict the quality of exercise on a test sample with known responses, acheiving a 0.9959 accuracy.
+
+## Methodology
+
+The response variable 'exercise quality', or `classe` in the data, is categorical, so I limit myself to tree-based prediction and linear discriminant analysis. Specifically, I train the following models:
+
+1. Decision tree, using the `rpart` package;
+2. Random forests, using the `randomForest` package;
+3. Boosted trees, using the `gbm` package; and
+4. Linear discriminant analysis, using the `MASS` package.
+
+For each model, I perform 10-fold cross validation to estimate the out of sample accuracy. I use `train` from the `caret` package to handle cross validation for me. I wrap the call to `train` in the `model_fit` function defined below in order to ease the process of parallelizing the training.
+
+```{r, results='hide'}
+fit_model <- function(data, method, preProcess = NULL, seed_vector_length = 3, ...) {
+    ## Apply `method` to `data` to train a model predicting classe ~ .
+    
+    ## Set the seed for reproducibility
+    set.seed(1234)
+    
+    ## Define a vector of seeds for parallelization, for reproducibility under parallelization
+    seeds <- vector(mode = "list", length = 11)
+    for(i in 1:10) seeds[[i]]<- sample.int(n=1000, seed_vector_length)
+    seeds[[11]]<-sample.int(1000, 1)
+    
+    ## Set trainControl to do 10-fold cross validation
+    ctrl <- trainControl(method = 'cv', seeds = seeds)
+    
+    ## Parallelize
+    cl <- makeCluster(detectCores()); registerDoParallel()
+    fit <- train(classe ~ ., data = data, method = method, trControl = ctrl, preProcess = preProcess, ...)
+    stopCluster(cl)
+    
+    ## Return the model
+    fit
+}
+```
+
+## Data
+
+The raw data can be found [here][WLEdata]. For the purposes of this project, I use a version of this data that has already been split into training and test sets. The training set can be found [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and the testing data can be found [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+```{r}
+training_all <- read.csv('data/pml-training.csv')
+test_cases <- read.csv('data/pml-testing.csv')
+```
+
+`clean_data`, defined below, drops all features in the training set that are non-numeric or non-integer and drops all observations with missing values.
+
+```{r}
+clean_data <- function(df, training = T) {
+    df <- df[, -c(1:7)] # X, user_name, raw_timestamp_*, cvtd_timestamp, *_window
+    if (training) classe <- df$classe 
+    df <- df[, sapply(df, function(x) class(x) %in% c('numeric', 'integer'))] # keep only numeric and integer features
+    df <- df[, sapply(df, function(x) !is.na(sum(x)))] # drop observations with missing values
+    if (training) df$classe <- classe
+    df
+}
+training_all <- clean_data(training_all)
+nfeatures <- ncol(training_all) - 1
+```
+
+The same features are retained for the testing set:
+
+```{r}
+test_cases <- test_cases[,sapply(names(test_cases), function(x) x %in% names(training_all))]
+```
+
+This method of feature selection results in `r nfeatures` features with which to predict the response variable `classe`. I could conceivably do further feature selection. For example, the authors of [1] use an algorithm proposed by [2] to select 17 features, acheiving a 98.03% accuracy. As we will see below, however, the final model acheives remarkable accuracy using the method defined in `clean_data`.
+
+I set asside the testing data `test_cases`, which contains only `r nrow(test_cases)` observations without response labels. I instead reserve 20% of the data in `training_all` for testing purposes:
+
+```{r}
+in_train <- createDataPartition(training_all$classe, p = .8, list = F)
+training <- training_all[in_train,]
+testing <- training_all[-in_train,]
+```
+
+This leaves `r nrow(training)` observations for use in training the models below.
+
+## Models
+
+The four models I train are a simple decision tree, hereafter referred to as `tree`; a random forest, `rf`; a boosted tree model, `gbm`; and a linear discriminant analysis, `lda`. All are passed to the function `model_fit`, defined above, which ensures that each model is run with the same cross validation samples.
+
+```{r, cache=TRUE, results='hide'}
+tree <- fit_model(data = training, method = 'rpart')
+rf <- fit_model(data = training, method = 'rf')
+gbm <- fit_model(data = training, method = 'gbm', verbose = FALSE)
+lda <- fit_model(data = training, method = 'lda')
+resamps <- resamples(list(tree = tree, rf = rf, gbm = gbm, lda = lda))
+f <- function(x) with(resamps$values, sapply(list(`tree~Accuracy`, `rf~Accuracy`, `gbm~Accuracy`, `lda~Accuracy`), x))
+results <- data.frame(model = resamps$models,
+                      estimated_accuracy = f(mean),
+                      estimated_sd = f(sd),
+                      total_estimation_time = resamps$timings$Everything,
+                      final_model_estimation_time = resamps$timings$FinalModel)
+results <- results[order(results$estimated_accuracy, decreasing = T),]
+diffs <- diff(resamps)
+```
+
+The results of the training exercises are presenteg in the following table:
+
+```{r, results='asis', echo=F}
+print(xtable(results, caption = 'Model summary statistics'), type = 'html')
+```
+
+The random forest model attains the best accuracy after 10-fold cross validation, where the final accuracy is the average accuracy of each iteration of the model applied to the test folds. The real question is whether `rf` performance is statistically better than the performance of the other models. In particular, is the accuracy of `rf` statistically different from the accuracy of `gbm`, the model with the next highest accuracy? A t-test implies that this difference in accuracy is meaningful:
+
+```{r, echo=FALSE}
+diffs$statistics$Accuracy$rf.diff.gbm
+```
+
+Figure 1 shows 99.5% confidence intervals for the differences between all the models. No two models deliver the same accuracy.
+
+```{r diffs, echo=F}
+dotplot(diffs, main= 'Figure 1: 99.5% confidence intervals for differences in model accuracy')
+```
+
+Based on these criterea, I select the random forests model to carry out the prediction. The estimated out of sample *error* is `r 1 - results$estimated_accuracy[results$model == 'rf']` with a standard error of `r results$estimated_sd[results$model == 'rf']`.
+
+## Prediction
+
+I use the `rf` model estimated in the previous section to predict exercise quality for the data in `testing`.
+
+```{r}
+rf_preds <- predict(rf, testing)
+confusion_matrix <- confusionMatrix(rf_preds, testing$classe)
+```
+
+The overall accuracy of the `rf` model on the testing data is `r confusion_matrix$overall['Accuracy']` with a 95% confidence interval of (`r confusion_matrix$overall['AccuracyLower']`, `r confusion_matrix$overall['AccuracyUpper']`). This is in line with the predicted out of sample accuracy from the last section.
+
+```{r, results='asis', echo=F}
+print(xtable(confusion_matrix$table, caption = 'Confusion matrix for the final model'), type = 'html')
+```
+
+## References
+
+[1] Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [*Qualitative Activity Recognition of Weight Lifting Exercises*][WLEdata]. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+[2] M.A. Hall. *Correlation-based Feature Subset Selection for Machine Learning*. PhD Thesis, Department of Computer Science, University of Waikato, Hamilton, New Zealand, Apr. 1999.
+
+
+[WLEdata]: http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises "Weight Lifting Exercise data"
