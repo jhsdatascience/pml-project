@@ -9,6 +9,7 @@ output: html_document
 library(lattice); library(caret); library(doParallel); library(xtable);
 library(randomForest);
 trellis.par.set(caretTheme())
+set.seed(1234)
 ```
 
 

@@ -140,7 +140,7 @@ results &lt;- results[order(results$estimated_accuracy, decreasing = T),]
 diffs &lt;- diff(resamps)</code></pre>
 <p>The results of the training exercises are presenteg in the following table:</p>
 <!-- html table generated in R 3.0.2 by xtable 1.7-3 package -->
-<!-- Sat Jun 21 22:43:29 2014 -->
+<!-- Sun Jun 22 16:07:18 2014 -->
 <TABLE border="1">
 <CAPTION ALIGN="bottom"> 
 Model summary statistics
@@ -231,9 +231,9 @@ tree
 <p>I use the <code>rf</code> model estimated in the previous section to predict exercise quality for the data in <code>testing</code>.</p>
 <pre class="r"><code>rf_preds &lt;- predict(rf, testing)
 confusion_matrix &lt;- confusionMatrix(rf_preds, testing$classe)</code></pre>
-<p>The overall accuracy of the <code>rf</code> model on the testing data is 0.9995 with a 95% confidence interval of (0.9982, 0.9999). This is in line with the predicted out of sample accuracy from the last section.</p>
+<p>The overall accuracy of the <code>rf</code> model on the testing data is 0.999 with a 95% confidence interval of (0.9974, 0.9997). This is in line with the predicted out of sample accuracy from the last section.</p>
 <!-- html table generated in R 3.0.2 by xtable 1.7-3 package -->
-<!-- Sat Jun 21 22:43:30 2014 -->
+<!-- Sun Jun 22 16:07:19 2014 -->
 <TABLE border="1">
 <CAPTION ALIGN="bottom"> 
 Confusion matrix for the final model
@@ -254,7 +254,7 @@ A
 </TD> <TD align="right"> 
 1116
 </TD> <TD align="right">   
-0
+1
 </TD> <TD align="right">   
 0
 </TD> <TD align="right">   
@@ -267,7 +267,7 @@ B
 </TD> <TD align="right">   
 0
 </TD> <TD align="right"> 
-759
+758
 </TD> <TD align="right">   
 1
 </TD> <TD align="right">   
@@ -284,7 +284,7 @@ C
 </TD> <TD align="right"> 
 683
 </TD> <TD align="right">   
-1
+2
 </TD> <TD align="right">   
 0
 </TD> </TR>
@@ -297,7 +297,7 @@ D
 </TD> <TD align="right">   
 0
 </TD> <TD align="right"> 
-642
+641
 </TD> <TD align="right">   
 0
 </TD> </TR>
